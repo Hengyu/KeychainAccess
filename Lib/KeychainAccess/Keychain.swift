@@ -26,17 +26,17 @@
 import Foundation
 import Security
 #if os(iOS) || os(macOS)
-import LocalAuthentication
+@preconcurrency import LocalAuthentication
 #endif
 
 public let KeychainAccessErrorDomain = "com.kishikawakatsumi.KeychainAccess.error"
 
-public enum ItemClass {
+public enum ItemClass: Sendable {
     case genericPassword
     case internetPassword
 }
 
-public enum ProtocolType {
+public enum ProtocolType: Sendable {
     case ftp
     case ftpAccount
     case http
@@ -70,7 +70,7 @@ public enum ProtocolType {
     case pop3S
 }
 
-public enum AuthenticationType {
+public enum AuthenticationType: Sendable {
     case ntlm
     case msn
     case dpa
@@ -81,7 +81,7 @@ public enum AuthenticationType {
     case `default`
 }
 
-public enum Accessibility {
+public enum Accessibility: Sendable {
     /**
      Item data can only be accessed
      while the device is unlocked. This is recommended for items that only
@@ -160,7 +160,7 @@ public enum Accessibility {
  If the key kSecUseAuthenticationUI not provided then kSecUseAuthenticationUIAllow
  is used as default.
  */
-public enum AuthenticationUI {
+public enum AuthenticationUI: Sendable {
     /**
      Specifies that authenticate UI can appear.
      */
@@ -206,7 +206,7 @@ extension AuthenticationUI {
     }
 }
 
-public struct AuthenticationPolicy: OptionSet {
+public struct AuthenticationPolicy: OptionSet, Sendable {
     /**
      User presence policy using Touch ID or Passcode. Touch ID does not
      have to be available or enrolled. Item is still accessible by Touch ID
@@ -305,7 +305,7 @@ public struct AuthenticationPolicy: OptionSet {
     #endif
 }
 
-public struct Attributes {
+public struct Attributes: Sendable {
     public var `class`: String? {
         return attributes[Class] as? String
     }
@@ -393,20 +393,20 @@ public struct Attributes {
         return attributes[AttributePath] as? String
     }
 
-    fileprivate let attributes: [String: Any]
+    fileprivate let attributes: [String: Sendable]
 
-    init(attributes: [String: Any]) {
+    init(attributes: [String: Sendable]) {
         self.attributes = attributes
     }
 
-    public subscript(key: String) -> Any? {
+    public subscript(key: String) -> Sendable? {
         get {
             return attributes[key]
         }
     }
 }
 
-public final class Keychain {
+public final class Keychain: Sendable {
     public var itemClass: ItemClass {
         return options.itemClass
     }
@@ -554,7 +554,7 @@ public final class Keychain {
         return Keychain(options)
     }
 
-    public func attributes(_ attributes: [String: Any]) -> Keychain {
+    public func attributes(_ attributes: [String: Sendable]) -> Keychain {
         var options = self.options
         attributes.forEach { options.attributes.updateValue($1, forKey: $0) }
         return Keychain(options)
@@ -604,7 +604,7 @@ public final class Keychain {
     public func getData(_ key: String, ignoringAttributeSynchronizable: Bool = true) throws -> Data? {
         var query = options.query(ignoringAttributeSynchronizable: ignoringAttributeSynchronizable)
 
-        query[MatchLimit] = MatchLimitOne
+        query[MatchLimit] = kSecMatchLimitOne
         query[ReturnData] = kCFBooleanTrue
 
         query[AttributeAccount] = key
@@ -628,7 +628,7 @@ public final class Keychain {
     public func get<T>(_ key: String, ignoringAttributeSynchronizable: Bool = true, handler: (Attributes?) -> T) throws -> T {
         var query = options.query(ignoringAttributeSynchronizable: ignoringAttributeSynchronizable)
 
-        query[MatchLimit] = MatchLimitOne
+        query[MatchLimit] = kSecMatchLimitOne
 
         query[ReturnData] = kCFBooleanTrue
         query[ReturnAttributes] = kCFBooleanTrue
@@ -642,7 +642,7 @@ public final class Keychain {
 
         switch status {
         case errSecSuccess:
-            guard let attributes = result as? [String: Any] else {
+            guard let attributes = result as? [String: Sendable] else {
                 throw Status.unexpectedError
             }
             return handler(Attributes(attributes: attributes))
@@ -705,26 +705,13 @@ public final class Keychain {
 
             options.attributes.forEach { attributes.updateValue($1, forKey: $0) }
 
-            #if os(iOS)
-            if status == errSecInteractionNotAllowed && floor(NSFoundationVersionNumber) <= floor(NSFoundationVersionNumber_iOS_8_0) {
-                try remove(key)
-                try set(value, key: key)
-            } else {
-                status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-                if status != errSecSuccess {
-                    throw securityError(status: status)
-                }
-            }
-            #else
             status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
             if status != errSecSuccess {
                 throw securityError(status: status)
             }
-            #endif
         case errSecItemNotFound:
             var (attributes, error) = options.attributes(key: key, value: value)
-            if let error = error {
-                print(error.localizedDescription)
+            if let error {
                 throw error
             }
 
@@ -741,17 +728,13 @@ public final class Keychain {
 
     public subscript(key: String) -> String? {
         get {
-            #if swift(>=5.0)
-            return try? get(key)
-            #else
-            return (try? get(key)).flatMap { $0 }
-            #endif
+            try? get(key)
         }
 
         set {
-            if let value = newValue {
+            if let newValue {
                 do {
-                    try set(value, key: key)
+                    try set(newValue, key: key)
                 } catch {}
             } else {
                 do {
@@ -763,7 +746,7 @@ public final class Keychain {
 
     public subscript(string key: String) -> String? {
         get {
-            return self[key]
+            self[key]
         }
 
         set {
@@ -773,11 +756,7 @@ public final class Keychain {
 
     public subscript(data key: String) -> Data? {
         get {
-            #if swift(>=5.0)
-            return try? getData(key)
-            #else
-            return (try? getData(key)).flatMap { $0 }
-            #endif
+            try? getData(key)
         }
 
         set {
@@ -794,13 +773,7 @@ public final class Keychain {
     }
 
     public subscript(attributes key: String) -> Attributes? {
-        get {
-            #if swift(>=5.0)
-            return try? get(key) { $0 }
-            #else
-            return (try? get(key) { $0 }).flatMap { $0 }
-            #endif
-        }
+        try? get(key) { $0 }
     }
 
     // MARK:
@@ -818,7 +791,7 @@ public final class Keychain {
     public func removeAll() throws {
         var query = options.query()
         #if !os(iOS) && !os(watchOS) && !os(tvOS)
-        query[MatchLimit] = MatchLimitAll
+        query[MatchLimit] = kSecMatchLimitAll
         #endif
 
         let status = SecItemDelete(query as CFDictionary)
@@ -884,8 +857,8 @@ public final class Keychain {
     public class func allKeys(_ itemClass: ItemClass) -> [(String, String)] {
         var query = [String: Any]()
         query[Class] = itemClass.rawValue
-        query[AttributeSynchronizable] = SynchronizableAny
-        query[MatchLimit] = MatchLimitAll
+        query[AttributeSynchronizable] = kSecAttrSynchronizableAny
+        query[MatchLimit] = kSecMatchLimitAll
         query[ReturnAttributes] = kCFBooleanTrue
 
         var result: AnyObject?
@@ -926,7 +899,7 @@ public final class Keychain {
     public class func allItems(_ itemClass: ItemClass) -> [[String: Any]] {
         var query = [String: Any]()
         query[Class] = itemClass.rawValue
-        query[MatchLimit] = MatchLimitAll
+        query[MatchLimit] = kSecMatchLimitAll
         query[ReturnAttributes] = kCFBooleanTrue
         #if os(iOS) || os(watchOS) || os(tvOS)
         query[ReturnData] = kCFBooleanTrue
@@ -1098,7 +1071,7 @@ public final class Keychain {
 
     fileprivate func items() -> [[String: Any]] {
         var query = options.query()
-        query[MatchLimit] = MatchLimitAll
+        query[MatchLimit] = kSecMatchLimitAll
         query[ReturnAttributes] = kCFBooleanTrue
         #if os(iOS) || os(watchOS) || os(tvOS)
         query[ReturnData] = kCFBooleanTrue
@@ -1195,7 +1168,7 @@ public final class Keychain {
     }
 }
 
-struct Options {
+struct Options: Sendable {
     var itemClass: ItemClass = .genericPassword
 
     var service: String = ""
@@ -1215,9 +1188,9 @@ struct Options {
 
     var authenticationPrompt: String?
     var authenticationUI: AuthenticationUI?
-    var authenticationContext: AnyObject?
+    var authenticationContext: (AnyObject & Sendable)?
 
-    var attributes = [String: Any]()
+    var attributes = [String: Sendable]()
 }
 
 /** Class Key Constant */
@@ -1250,12 +1223,12 @@ private let AttributeAuthenticationType = String(kSecAttrAuthenticationType)
 private let AttributePort = String(kSecAttrPort)
 private let AttributePath = String(kSecAttrPath)
 
-private let SynchronizableAny = kSecAttrSynchronizableAny
+// private let SynchronizableAny = kSecAttrSynchronizableAny
 
 /** Search Constants */
 private let MatchLimit = String(kSecMatchLimit)
-private let MatchLimitOne = kSecMatchLimitOne
-private let MatchLimitAll = kSecMatchLimitAll
+// private let MatchLimitOne = kSecMatchLimitOne
+// private let MatchLimitAll = kSecMatchLimitAll
 
 /** Return Type Key Constants */
 private let ReturnData = String(kSecReturnData)
@@ -1327,7 +1300,7 @@ extension Options {
             query[AttributeAccessGroup] = accessGroup
         }
         if ignoringAttributeSynchronizable {
-            query[AttributeSynchronizable] = SynchronizableAny
+            query[AttributeSynchronizable] = kSecAttrSynchronizableAny
         } else {
             query[AttributeSynchronizable] = synchronizable ? kCFBooleanTrue : kCFBooleanFalse
         }
@@ -1827,7 +1800,7 @@ extension CFError {
     }
 }
 
-public enum Status: OSStatus, Error {
+public enum Status: OSStatus, Error, Sendable {
     case success                            = 0
     case unimplemented                      = -4
     case diskFull                           = -34
