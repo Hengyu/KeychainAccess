@@ -323,14 +323,10 @@ public struct Attributes: Sendable {
         return attributes[AttributeAccessible] as? String
     }
     public var accessControl: SecAccessControl? {
-        if #available(macOS 10.10, *) {
-            if let accessControl = attributes[AttributeAccessControl] {
-                return (accessControl as! SecAccessControl)
-            }
-            return nil
-        } else {
-            return nil
+        if let accessControl = attributes[AttributeAccessControl] {
+            return (accessControl as! SecAccessControl)
         }
+        return nil
     }
     public var accessGroup: String? {
         return attributes[AttributeAccessGroup] as? String
@@ -667,23 +663,17 @@ public final class Keychain: Sendable {
         var query = options.query(ignoringAttributeSynchronizable: ignoringAttributeSynchronizable)
         query[AttributeAccount] = key
         #if os(iOS)
-        if #available(iOS 9.0, *) {
-            if let authenticationUI = options.authenticationUI {
-                query[UseAuthenticationUI] = authenticationUI.rawValue
-            } else {
-                query[UseAuthenticationUI] = UseAuthenticationUIFail
-            }
+        if let authenticationUI = options.authenticationUI {
+            query[UseAuthenticationUI] = authenticationUI.rawValue
         } else {
-            query[UseNoAuthenticationUI] = kCFBooleanTrue
+            query[UseAuthenticationUI] = UseAuthenticationUIFail
         }
         #elseif os(macOS)
         query[ReturnData] = kCFBooleanTrue
-        if #available(macOS 10.11, *) {
-            if let authenticationUI = options.authenticationUI {
-                query[UseAuthenticationUI] = authenticationUI.rawValue
-            } else {
-                query[UseAuthenticationUI] = UseAuthenticationUIFail
-            }
+        if let authenticationUI = options.authenticationUI {
+            query[UseAuthenticationUI] = authenticationUI.rawValue
+        } else {
+            query[UseAuthenticationUI] = UseAuthenticationUIFail
         }
         #else
         if let authenticationUI = options.authenticationUI {
@@ -807,39 +797,21 @@ public final class Keychain: Sendable {
         query[AttributeAccount] = key
 
         if withoutAuthenticationUI {
-            #if os(iOS) || os(watchOS) || os(tvOS)
-            if #available(iOS 9.0, *) {
-                if let authenticationUI = options.authenticationUI {
-                    query[UseAuthenticationUI] = authenticationUI.rawValue
-                } else {
-                    query[UseAuthenticationUI] = UseAuthenticationUIFail
-                }
+            if let authenticationUI = options.authenticationUI {
+                query[UseAuthenticationUI] = authenticationUI.rawValue
             } else {
-                query[UseNoAuthenticationUI] = kCFBooleanTrue
+                query[UseAuthenticationUI] = UseAuthenticationUIFail
             }
-            #else
-            if #available(macOS 10.11, *) {
-                if let authenticationUI = options.authenticationUI {
-                    query[UseAuthenticationUI] = authenticationUI.rawValue
-                } else {
-                    query[UseAuthenticationUI] = UseAuthenticationUIFail
-                }
-            } else if #available(macOS 10.10, *) {
-                query[UseNoAuthenticationUI] = kCFBooleanTrue
-            }
-            #endif
         } else {
-            if #available(iOS 9.0, macOS 10.11, *) {
-                if let authenticationUI = options.authenticationUI {
-                    query[UseAuthenticationUI] = authenticationUI.rawValue
-                }
+            if let authenticationUI = options.authenticationUI {
+                query[UseAuthenticationUI] = authenticationUI.rawValue
             }
         }
         
         let status = SecItemCopyMatching(query as CFDictionary, nil)
         switch status {
         case errSecSuccess:
-                return true
+            return true
         case errSecInteractionNotAllowed:
             if withoutAuthenticationUI {
                 return true
@@ -1315,17 +1287,13 @@ extension Options {
             query[AttributeAuthenticationType] = authenticationType.rawValue
         }
 
-        if #available(macOS 10.10, *) {
-            if authenticationPrompt != nil {
-                query[UseOperationPrompt] = authenticationPrompt
-            }
+        if authenticationPrompt != nil {
+            query[UseOperationPrompt] = authenticationPrompt
         }
 
         #if !os(watchOS)
-        if #available(iOS 9.0, macOS 10.11, *) {
-            if authenticationContext != nil {
-                query[UseAuthenticationContext] = authenticationContext
-            }
+        if authenticationContext != nil {
+            query[UseAuthenticationContext] = authenticationContext
         }
         #endif
 
@@ -1352,19 +1320,15 @@ extension Options {
         }
 
         if let policy = authenticationPolicy {
-            if #available(macOS 10.10, *) {
-                var error: Unmanaged<CFError>?
-                guard let accessControl = SecAccessControlCreateWithFlags(kCFAllocatorDefault, accessibility.rawValue as CFTypeRef, SecAccessControlCreateFlags(rawValue: CFOptionFlags(policy.rawValue)), &error) else {
-                    if let error = error?.takeUnretainedValue() {
-                        return (attributes, error.error)
-                    }
-
-                    return (attributes, Status.unexpectedError)
+            var error: Unmanaged<CFError>?
+            guard let accessControl = SecAccessControlCreateWithFlags(kCFAllocatorDefault, accessibility.rawValue as CFTypeRef, SecAccessControlCreateFlags(rawValue: CFOptionFlags(policy.rawValue)), &error) else {
+                if let error = error?.takeUnretainedValue() {
+                    return (attributes, error.error)
                 }
-                attributes[AttributeAccessControl] = accessControl
-            } else {
-                print("Unavailable 'Touch ID integration' on macOS versions prior to 10.10.")
+
+                return (attributes, Status.unexpectedError)
             }
+            attributes[AttributeAccessControl] = accessControl
         } else {
             attributes[AttributeAccessible] = accessibility.rawValue
         }
@@ -1692,50 +1656,27 @@ extension AuthenticationType: RawRepresentable, CustomStringConvertible {
 
 extension Accessibility: RawRepresentable, CustomStringConvertible {
     public init?(rawValue: String) {
-        if #available(macOS 10.10, *) {
-            switch rawValue {
-            case String(kSecAttrAccessibleWhenUnlocked):
-                self = .whenUnlocked
-            case String(kSecAttrAccessibleAfterFirstUnlock):
-                self = .afterFirstUnlock
-            #if !targetEnvironment(macCatalyst)
-            case String(kSecAttrAccessibleAlways):
-                self = .always
-            #endif
-            case String(kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly):
-                self = .whenPasscodeSetThisDeviceOnly
-            case String(kSecAttrAccessibleWhenUnlockedThisDeviceOnly):
-                self = .whenUnlockedThisDeviceOnly
-            case String(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly):
-                self = .afterFirstUnlockThisDeviceOnly
-            #if !targetEnvironment(macCatalyst)
-            case String(kSecAttrAccessibleAlwaysThisDeviceOnly):
-                self = .alwaysThisDeviceOnly
-            #endif
-            default:
-                return nil
-            }
-        } else {
-            switch rawValue {
-            case String(kSecAttrAccessibleWhenUnlocked):
-                self = .whenUnlocked
-            case String(kSecAttrAccessibleAfterFirstUnlock):
-                self = .afterFirstUnlock
-            #if !targetEnvironment(macCatalyst)
-            case String(kSecAttrAccessibleAlways):
-                self = .always
-            #endif
-            case String(kSecAttrAccessibleWhenUnlockedThisDeviceOnly):
-                self = .whenUnlockedThisDeviceOnly
-            case String(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly):
-                self = .afterFirstUnlockThisDeviceOnly
-            #if !targetEnvironment(macCatalyst)
-            case String(kSecAttrAccessibleAlwaysThisDeviceOnly):
-                self = .alwaysThisDeviceOnly
-            #endif
-            default:
-                return nil
-            }
+        switch rawValue {
+        case String(kSecAttrAccessibleWhenUnlocked):
+            self = .whenUnlocked
+        case String(kSecAttrAccessibleAfterFirstUnlock):
+            self = .afterFirstUnlock
+        #if !targetEnvironment(macCatalyst)
+        case String(kSecAttrAccessibleAlways):
+            self = .always
+        #endif
+        case String(kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly):
+            self = .whenPasscodeSetThisDeviceOnly
+        case String(kSecAttrAccessibleWhenUnlockedThisDeviceOnly):
+            self = .whenUnlockedThisDeviceOnly
+        case String(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly):
+            self = .afterFirstUnlockThisDeviceOnly
+        #if !targetEnvironment(macCatalyst)
+        case String(kSecAttrAccessibleAlwaysThisDeviceOnly):
+            self = .alwaysThisDeviceOnly
+        #endif
+        default:
+            return nil
         }
     }
 
